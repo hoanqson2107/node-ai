@@ -1,16 +1,24 @@
 const os = require('os');
 const axios = require('axios');
 
+/**
+ * Dùng:
+ * node bot.js <WEBHOOK_URL> [seconds]
+ */
+
 const WEBHOOK_URL = process.argv[2];
 const seconds = parseInt(process.argv[3]) || 60;
 
 if (!WEBHOOK_URL) {
-    console.log('❌ Thiếu webhook!');
-    console.log('👉 Dùng: node bot.js <WEBHOOK_URL> [seconds]');
+    console.log('❌ Thiếu webhook');
+    console.log('👉 node bot.js <WEBHOOK_URL> [seconds]');
     process.exit(1);
 }
 
 const INTERVAL = seconds * 1000;
+
+// Lưu message ID cũ
+let lastMessageId = null;
 
 function getCPUInfo() {
     return os.cpus().map(cpu => {
@@ -19,9 +27,19 @@ function getCPUInfo() {
     });
 }
 
+async function deleteOldMessage() {
+    if (!lastMessageId) return;
+
+    try {
+        await axios.delete(`${WEBHOOK_URL}/messages/${lastMessageId}`);
+    } catch (err) {
+        // Tin bị xoá tay hoặc lỗi → bỏ qua
+    }
+}
+
 async function startMonitoring() {
-    console.log(`🚀 Bắt đầu gửi CPU mỗi ${seconds} giây`);
-    console.log(`🌐 Webhook: ${WEBHOOK_URL}`);
+    console.log(`🚀 Gửi CPU mỗi ${seconds}s`);
+    console.log(`♻️ Tự xoá embed cũ (chỉ giữ 1 tin)`);
 
     while (true) {
         const stats1 = getCPUInfo();
@@ -57,10 +75,22 @@ async function startMonitoring() {
         };
 
         try {
-            await axios.post(WEBHOOK_URL, embedData);
-            console.log(`✅ Đã gửi CPU ${avgUsage}%`);
-        } catch (e) {
-            console.error('❌ Lỗi gửi webhook:', e.message);
+            // Xoá tin cũ
+            await deleteOldMessage();
+
+            // Gửi tin mới
+            const res = await axios.post(
+                WEBHOOK_URL + '?wait=true',
+                embedData
+            );
+
+            // Lưu message ID mới
+            lastMessageId = res.data.id;
+
+            console.log(`✅ CPU ${avgUsage}% (đã thay tin cũ)`);
+
+        } catch (err) {
+            console.error('❌ Lỗi:', err.message);
         }
 
         await new Promise(r => setTimeout(r, INTERVAL));
