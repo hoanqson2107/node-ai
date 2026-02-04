@@ -135,7 +135,7 @@ async function startMonitoring() {
                         }
                     ],
                     footer: {
-                        text: `Cập nhật mỗi ${seconds}s | Giữ 1 tin`
+                        text: `Cập nhật mỗi ${seconds}s |`
                     },
                     timestamp: new Date()
                 }
