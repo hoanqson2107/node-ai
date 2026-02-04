@@ -4,27 +4,48 @@ const axios = require('axios');
 
 const CONFIG_FILE = './config.json';
 
+/* ================= LOAD CONFIG ================= */
+
 let config = {};
 if (fs.existsSync(CONFIG_FILE)) {
     config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
 }
 
+const hasArgs = process.argv.length > 2;
+
 const WEBHOOK_URL = process.argv[2] || config.webhook;
 const seconds = parseInt(process.argv[3]) || config.seconds || 60;
 const NAME = process.argv[4] || config.name || os.hostname();
 
-if (!WEBHOOK_URL) {
-    console.log('❌ Chưa có webhook!');
-    console.log('👉 node bot.js <WEBHOOK_URL> [seconds] [name]');
-    process.exit(1);
-}
+/* ================= SAVE CONFIG & EXIT ================= */
 
-if (process.argv.length > 2) {
+if (hasArgs) {
+    if (!WEBHOOK_URL) {
+        console.log('❌ Chưa có webhook!');
+        console.log('👉 node bot.js <WEBHOOK_URL> [seconds] [name]');
+        process.exit(1);
+    }
+
     fs.writeFileSync(
         CONFIG_FILE,
-        JSON.stringify({ webhook: WEBHOOK_URL, seconds, name: NAME }, null, 2)
+        JSON.stringify(
+            { webhook: WEBHOOK_URL, seconds, name: NAME },
+            null,
+            2
+        )
     );
+
     console.log('💾 Đã lưu cấu hình vào config.json');
+    console.log('👉 Chạy lại: node bot.js để bắt đầu monitor');
+    process.exit(0); // 🔴 EXIT LUÔN
+}
+
+/* ================= CHECK CONFIG ================= */
+
+if (!WEBHOOK_URL) {
+    console.log('❌ Chưa có webhook trong config.json!');
+    console.log('👉 node bot.js <WEBHOOK_URL> [seconds] [name]');
+    process.exit(1);
 }
 
 const INTERVAL = seconds * 1000;
@@ -35,11 +56,14 @@ let lastMessageId = null;
 function getCPUInfo() {
     return os.cpus().map(cpu => {
         const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-        return { idle: cpu.times.idle, total };
+        return {
+            idle: cpu.times.idle,
+            total
+        };
     });
 }
 
-/* ================= Discord ================= */
+/* ================= DISCORD ================= */
 
 async function deleteOldMessage() {
     if (!lastMessageId) return;
@@ -48,7 +72,7 @@ async function deleteOldMessage() {
     } catch {}
 }
 
-/* ================= Monitor ================= */
+/* ================= MONITOR ================= */
 
 async function startMonitoring() {
     console.log(`🚀 CPU Monitor: ${NAME}`);
@@ -64,56 +88,46 @@ async function startMonitoring() {
         let rows = [];
         let row = [];
 
-        const PER_ROW = 10;
+        const PER_ROW = 4;
 
         s2.forEach((stat, i) => {
             const idleDiff = stat.idle - s1[i].idle;
             const totalDiff = stat.total - s1[i].total;
+
             const usage = Math.max(
                 0,
-                100 - Math.floor(100 * idleDiff / totalDiff)
+                100 - Math.round((idleDiff / totalDiff) * 100)
             );
 
             totalUsage += usage;
 
-            // fixed width: C001:099%
-            const label =
-                `C${String(i + 1).padStart(3, '0')}:` +
-                `${String(usage).padStart(3, '0')}%`;
+            const label = `C${String(i + 1).padStart(3, '0')}:${usage}%`;
 
             row.push(label);
 
             if (row.length === PER_ROW) {
-                rows.push(row.join('  '));
+                rows.push(row);
                 row = [];
             }
         });
 
-        if (row.length > 0) {
-            rows.push(row.join('  '));
-        }
+        if (row.length > 0) rows.push(row);
 
-        const avgUsage = Math.floor(totalUsage / s2.length);
+        const avgUsage = Math.round(totalUsage / s2.length);
 
-        const coreDetails = '```' + rows.join('\n') + '```';
+        const coreDetails = rows
+            .map(r => r.map(c => `\`${c}\``).join('   '))
+            .join('\n');
 
         const embedData = {
             embeds: [
                 {
                     title: `🖥️ CPU Status — ${NAME}`,
-                    color: avgUsage > 80 ? 15158332 : 3066993,
+                    color: avgUsage >= 80 ? 0xE74C3C : 0x2ECC71,
                     fields: [
                         { name: 'Tên', value: `\`${NAME}\``, inline: true },
-                        {
-                            name: 'Host',
-                            value: `\`${os.hostname()}\``,
-                            inline: true
-                        },
-                        {
-                            name: 'CPU Tổng',
-                            value: `\`${avgUsage}%\``,
-                            inline: true
-                        },
+                        { name: 'Host', value: `\`${os.hostname()}\``, inline: true },
+                        { name: 'CPU Tổng', value: `\`${avgUsage}%\``, inline: true },
                         {
                             name: `Chi tiết (${s2.length} cores)`,
                             value: coreDetails,
